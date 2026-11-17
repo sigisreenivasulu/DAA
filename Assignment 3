@@ -1,0 +1,278 @@
+import random, time, math, sys
+sys.setrecursionlimit(100000)
+random.seed(1)
+# Q1 maxmin
+def mm(a,l,h,c):
+    if l==h: return a[l],a[l]
+    if h==l+1:
+        c[0]+=1
+        return (a[l],a[h]) if a[l]>a[h] else (a[h],a[l])
+    m=(l+h)//2
+    x=mm(a,l,m,c); y=mm(a,m+1,h,c)
+    c[0]+=2
+    return max(x[0],y[0]),min(x[1],y[1])
+print("Q1 maxmin n, DC, pred ceil(3n/2)-2, naive 2(n-1)")
+for n in [8,16,100,128,1000,1024,5000,10000]:
+    a=[random.randint(0,10**6) for _ in range(n)];c=[0];r=mm(a,0,n-1,c)
+    assert r==(max(a),min(a))
+    print(n,c[0],math.ceil(3*n/2)-2 if n%2==0 else None,2*(n-1))
+def bs(a,t):
+    l,h,c=0,len(a)-1,0
+    while l<=h:
+        m=(l+h)//2;c+=1
+        if a[m]==t: return c
+        if a[m]<t:l=m+1
+        else:h=m-1
+    return c
+print("BS n, avg succ, worst succ, avg unsucc, floor(log2 n)+1")
+for n in [10,100,1000,10000,100000,1000000]:
+    a=list(range(0,2*n,2))
+    s=[bs(a,x) for x in random.sample(a,min(n,2000))]
+    u=[bs(a,x+1) for x in random.sample(a,min(n,2000))]
+    print(n,round(sum(s)/len(s),2),max(s),round(sum(u)/len(u),2),int(math.log2(n))+1)
+# Q2
+def qs(a):
+    st={'cmp':0,'maxd':0,'parts':[]}
+    def rec(l,h,d):
+        if l>=h: return
+        st['maxd']=max(st['maxd'],d)
+        p=a[l];i=l+1
+        for j in range(l+1,h+1):
+            st['cmp']+=1
+            if a[j]<p:
+                a[i],a[j]=a[j],a[i];i+=1
+        a[l],a[i-1]=a[i-1],a[l]
+        k=i-1
+        if d==0: st['parts'].append((k-l,h-k))
+        rec(l,k-1,d+1);rec(k+1,h,d+1)
+    rec(0,len(a)-1,0);return st
+def ms(a):
+    st={'cmp':0,'maxd':0}
+    def rec(x,d):
+        st['maxd']=max(st['maxd'],d)
+        if len(x)<=1:return x
+        m=len(x)//2;L=rec(x[:m],d+1);R=rec(x[m:],d+1);o=[];i=j=0
+        while i<len(L) and j<len(R):
+            st['cmp']+=1
+            if L[i]<=R[j]:o.append(L[i]);i+=1
+            else:o.append(R[j]);j+=1
+        return o+L[i:]+R[j:]
+    rec(a,0);return st
+print("Q2 n | QS-random cmp,depth | QS-sorted cmp,depth,firstsplit | QS-balanced(constructed) cmp,depth | MS cmp,depth")
+def balanced(n):
+    a=list(range(n))
+    def b(l,h):
+        if l>=h:return
+        m=(l+h)//2
+        a[l],a[m]=a[m],a[l]
+        b(l+1,m);b(m+1,h)  # approximate: place median first
+    # construct: median at front recursively
+    def build(x):
+        if len(x)<=1:return x[:]
+        m=len(x)//2;return [x[m]]+build(x[:m])+build(x[m+1:])
+    return build(a)
+for n in [100,500,1000,2000]:
+    r=qs([random.random() for _ in range(n)]);s=qs(list(range(n)));bb=qs(balanced(n));m=ms([random.random() for _ in range(n)])
+    print(n,(r['cmp'],r['maxd']),(s['cmp'],s['maxd'],s['parts'][0]),(bb['cmp'],bb['maxd'],bb['parts'][0]),(m['cmp'],m['maxd']),"n(n-1)/2=",n*(n-1)//2,"nlog2n=",round(n*math.log2(n)))
+# Q3
+cnt=[0]
+def school(x,y):
+    a=list(map(int,str(x)))[::-1];b=list(map(int,str(y)))[::-1]
+    r=[0]*(len(a)+len(b))
+    for i,u in enumerate(a):
+        for j,v in enumerate(b):
+            r[i+j]+=u*v;cnt[0]+=1
+    c=0
+    for k in range(len(r)):
+        t=r[k]+c;r[k]=t%10;c=t//10
+    return int(''.join(map(str,r[::-1])))
+def kara(x,y,n):
+    if n<=1:
+        cnt[0]+=1;return x*y
+    m=n//2;p=10**m
+    a,b=divmod(x,p);c,d=divmod(y,p)
+    ac=kara(a,c,max(n-m,1));bd=kara(b,d,m)
+    s=kara(a+b,c+d,n-m+1 if n-m+1<n else n)
+    return ac*p*p+(s-ac-bd)*p+bd
+# safer karatsuba
+def kara2(x,y):
+    if x<10 or y<10:
+        cnt[0]+=1;return x*y
+    n=max(len(str(x)),len(str(y)));m=n//2;p=10**m
+    a,b=divmod(x,p);c,d=divmod(y,p)
+    ac=kara2(a,c);bd=kara2(b,d);s=kara2(a+b,c+d)
+    return ac*p*p+(s-ac-bd)*p+bd
+print("Q3 digits n | school mults | kara mults | n^2 | n^1.585 | t_school(ms) | t_kara(ms)")
+for n in [2,4,8,16,32,64,128,256,512]:
+    x=random.randint(10**(n-1),10**n-1);y=random.randint(10**(n-1),10**n-1)
+    cnt[0]=0;t=time.perf_counter()
+    for _ in range(5): r1=school(x,y)
+    ts=(time.perf_counter()-t)/5*1000;cs=cnt[0]//5
+    cnt[0]=0;t=time.perf_counter()
+    for _ in range(5): r2=kara2(x,y)
+    tk=(time.perf_counter()-t)/5*1000;ck=cnt[0]//5
+    assert r1==r2==x*y
+    print(n,cs,ck,n*n,round(n**1.585),round(ts,3),round(tk,3))
+# Q4
+def madd(A,B,s=1):
+    return [[A[i][j]+s*B[i][j] for j in range(len(A))] for i in range(len(A))]
+mc=[0]
+def conv(A,B):
+    n=len(A);C=[[0]*n for _ in range(n)]
+    for i in range(n):
+        for k in range(n):
+            a=A[i][k]
+            for j in range(n):
+                C[i][j]+=a*B[k][j]
+    mc[0]+=n**3;return C
+def strassen(A,B,cut):
+    n=len(A)
+    if n<=cut: return conv(A,B)
+    h=n//2
+    sub=lambda M,r,c:[row[c:c+h] for row in M[r:r+h]]
+    A11,A12,A21,A22=sub(A,0,0),sub(A,0,h),sub(A,h,0),sub(A,h,h)
+    B11,B12,B21,B22=sub(B,0,0),sub(B,0,h),sub(B,h,0),sub(B,h,h)
+    M1=strassen(madd(A11,A22),madd(B11,B22),cut)
+    M2=strassen(madd(A21,A22),B11,cut)
+    M3=strassen(A11,madd(B12,B22,-1),cut)
+    M4=strassen(A22,madd(B21,B11,-1),cut)
+    M5=strassen(madd(A11,A12),B22,cut)
+    M6=strassen(madd(A21,A11,-1),madd(B11,B12),cut)
+    M7=strassen(madd(A12,A22,-1),madd(B21,B22),cut)
+    C11=madd(madd(M1,M4),madd(M5,M7,-1),-1) if False else madd(madd(madd(M1,M4),M5,-1),M7)
+    C12=madd(M3,M5);C21=madd(M2,M4)
+    C22=madd(madd(madd(M1,M2,-1),M3),M6)
+    return [C11[i]+C12[i] for i in range(h)]+[C21[i]+C22[i] for i in range(h)]
+print("Q4 n | conv mults | strassen(cut1) mults | conv t(ms) | strassen cut1 t | strassen cut16 t | cut16 mults")
+for n in [2,4,8,16,32,64,128]:
+    A=[[random.randint(-9,9) for _ in range(n)] for _ in range(n)];B=[[random.randint(-9,9) for _ in range(n)] for _ in range(n)]
+    ref=conv(A,B)
+    res={}
+    for name,f in [('conv',lambda:conv(A,B)),('s1',lambda:strassen(A,B,1)),('s16',lambda:strassen(A,B,16))]:
+        mc[0]=0;t=time.perf_counter();r=f();dt=(time.perf_counter()-t)*1000
+        assert r==ref;res[name]=(round(dt,2),mc[0])
+    print(n,res['conv'][1],res['s1'][1],res['conv'][0],res['s1'][0],res['s16'][0],res['s16'][1])
+# Q5
+def dist(a,b):
+    return math.hypot(a[0]-b[0],a[1]-b[1])
+def brute(P):
+    c=0;best=1e18
+    for i in range(len(P)):
+        for j in range(i+1,len(P)):
+            c+=1;best=min(best,dist(P[i],P[j]))
+    return best,c
+def cp(P):
+    P=sorted(P);c=[0]
+    def rec(Px):
+        n=len(Px)
+        if n<=3:
+            b=1e18
+            for i in range(n):
+                for j in range(i+1,n):
+                    c[0]+=1;b=min(b,dist(Px[i],Px[j]))
+            return b,sorted(Px,key=lambda p:p[1])
+        m=n//2;mx=Px[m][0]
+        dl,L=rec(Px[:m]);dr,R=rec(Px[m:])
+        d=min(dl,dr);Y=[];i=j=0
+        while i<len(L) and j<len(R):
+            if L[i][1]<=R[j][1]:Y.append(L[i]);i+=1
+            else:Y.append(R[j]);j+=1
+        Y+=L[i:]+R[j:]
+        S=[p for p in Y if abs(p[0]-mx)<d]
+        for i in range(len(S)):
+            for j in range(i+1,len(S)):
+                if S[j][1]-S[i][1]>=d:break
+                c[0]+=1;d=min(d,dist(S[i],S[j]))
+        return d,Y
+    return rec(P)[0],c[0]
+print("Q5 n | brute dist calcs | DC dist calcs | brute t(ms) | DC t(ms)")
+for n in [10,50,100,500,1000,2000,5000]:
+    P=[(random.random()*1e4,random.random()*1e4) for _ in range(n)]
+    t=time.perf_counter();b,bc=brute(P);tb=(time.perf_counter()-t)*1000
+    t=time.perf_counter();d,dc=cp(P);td=(time.perf_counter()-t)*1000
+    assert abs(b-d)<1e-9
+    print(n,bc,dc,round(tb,2),round(td,2))
+# Q6
+def qselect(a,k,mode):
+    a=a[:];c=0
+    while True:
+        if len(a)==1:return a[0],c
+        p=a[0] if mode=='first' else random.choice(a)
+        lo=[x for x in a if x<p];eq=[x for x in a if x==p];hi=[x for x in a if x>p];c+=len(a)
+        if k<len(lo):a=lo
+        elif k<len(lo)+len(eq):return p,c
+        else:k-=len(lo)+len(eq);a=hi
+mcnt=[0]
+def mom(a,k):
+    if len(a)<=5:
+        mcnt[0]+=len(a)*3;return sorted(a)[k]
+    med=[sorted(a[i:i+5])[len(a[i:i+5])//2] for i in range(0,len(a),5)]
+    mcnt[0]+=len(a)*1.2
+    p=mom(med,len(med)//2)
+    lo=[x for x in a if x<p];eq=[x for x in a if x==p];hi=[x for x in a if x>p];mcnt[0]+=len(a)
+    if k<len(lo):return mom(lo,k)
+    if k<len(lo)+len(eq):return p
+    return mom(hi,k-len(lo)-len(eq))
+print("Q6 n | QS first-pivot sorted cmp | QS random-pivot sorted cmp (avg of 20) | MoM sorted work | MoM random work | n(n)/2")
+for n in [1000,5000,10000]:
+    s=list(range(n));k=n-1
+    v1,c1=qselect(s,k,'first')
+    rr=[qselect(s,k,'rand')[1] for _ in range(20)]
+    mcnt[0]=0;assert mom(s,k)==k;w1=mcnt[0]
+    r=random.sample(range(n),n);mcnt[0]=0;assert mom(r,k)==k;w2=mcnt[0]
+    print(n,c1,round(sum(rr)/20),max(rr),round(w1),round(w2),n*n//2)
+def mitm(arr,T):
+    n=len(arr);h=n//2;L=arr[:h];R=arr[h:]
+    def subs(x):
+        s=[0]
+        for v in x:s+= [t+v for t in s]
+        return s
+    SL=subs(L);SR=sorted(subs(R));import bisect
+    for s in SL:
+        i=bisect.bisect_left(SR,T-s)
+        if i<len(SR) and SR[i]==T-s:return True,len(SL)+len(SR)
+    return False,len(SL)+len(SR)
+print("Q6b MITM n | brute subsets 2^n | MITM listed 2*2^(n/2) | found? ")
+for n in [10,16,20,24,30,40]:
+    arr=random.sample(range(1,10**6),n);T=sum(arr[::3])
+    f,l=mitm(arr,T)
+    if n<=20:
+        bf=any(sum(x for i,x in enumerate(arr) if m>>i&1)==T for m in range(1<<n));assert bf==f
+    print(n,2**n,l,f)
+# Q7 inversions
+def inv_dc(a):
+    c=[0]
+    def rec(x):
+        if len(x)<=1:return x,0
+        m=len(x)//2;L,a1=rec(x[:m]);R,a2=rec(x[m:]);o=[];i=j=0;t=a1+a2
+        while i<len(L) and j<len(R):
+            c[0]+=1
+            if L[i]<=R[j]:o.append(L[i]);i+=1
+            else:o.append(R[j]);j+=1;t+=len(L)-i
+        return o+L[i:]+R[j:],t
+    return rec(a)[0],c[0]
+def inv_dc2(a):
+    r,t=None,None
+    c=[0]
+    def rec(x):
+        if len(x)<=1:return x,0
+        m=len(x)//2;L,a1=rec(x[:m]);R,a2=rec(x[m:]);o=[];i=j=0;t=a1+a2
+        while i<len(L) and j<len(R):
+            c[0]+=1
+            if L[i]<=R[j]:o.append(L[i]);i+=1
+            else:o.append(R[j]);j+=1;t+=len(L)-i
+        return o+L[i:]+R[j:],t
+    return rec(a)[1],c[0]
+def inv_bf(a):
+    return sum(1 for i in range(len(a)) for j in range(i+1,len(a)) if a[i]>a[j]),len(a)*(len(a)-1)//2
+print("Q7 tests"),
+for a in [[],[1],[1,2,3],[3,2,1],[2,4,1,3,5],[1,1,1],[5,1,1,2]]:
+    print(a,inv_dc2(a)[0],inv_bf(a)[0])
+print("Q7 n | brute cmp | DC cmp | brute t | DC t")
+for n in [10,100,1000,3000,10000]:
+    a=random.sample(range(n*10),n)
+    t=time.perf_counter();r2=inv_dc2(a);td=(time.perf_counter()-t)*1000
+    if n<=3000:
+        t=time.perf_counter();r1=inv_bf(a);tb=(time.perf_counter()-t)*1000;assert r1[0]==r2[0]
+    else:r1=(None,n*(n-1)//2);tb=None
+    print(n,r1[1],r2[1],tb and round(tb,2),round(td,2),r2[0])
