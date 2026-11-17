@@ -1,0 +1,171 @@
+"""SentinelOps SOC alert-triage module (debugged and optimised).
+
+Functions
+---------
+sort_alerts      -- stable insertion sort (corrected, reference version)
+sort_alerts_fast -- production sort (Timsort, stable, adaptive)
+is_blocked       -- corrected sequential search
+BlockList        -- hash-set blocklist for repeated lookups
+find_signature   -- corrected brute-force string matching
+closest_logins_brute -- corrected brute-force closest pair (reference)
+closest_logins   -- optimised closest pair (no sqrt in loop, x-sweep pruning)
+"""
+import math
+
+
+def sort_alerts(alerts, counter=None):
+    """Stable insertion sort of (id, severity) tuples, highest severity first.
+
+    Sorts in place and returns the list. `counter` (optional one-item list)
+    accumulates the number of key comparisons, used for measurement.
+    """
+    for i in range(1, len(alerts)):
+        key = alerts[i]
+        j = i - 1
+        # FIX 1: j >= 0 so index 0 is also compared/shifted.
+        # Strict '<' keeps equal severities in arrival order (stable).
+        while j >= 0:
+            if counter is not None:
+                counter[0] += 1
+            if alerts[j][1] < key[1]:
+                alerts[j + 1] = alerts[j]
+                j -= 1
+            else:
+                break
+        alerts[j + 1] = key          # FIX 2: drop key into slot j+1, not j
+    return alerts
+
+
+def sort_alerts_fast(alerts):
+    """Production sort: Timsort via sorted(); stable, O(n) on nearly sorted data."""
+    return sorted(alerts, key=lambda a: -a[1])
+
+
+def is_blocked(blocklist, ip):
+    """Sequential search: True if ip is in blocklist."""
+    for i in range(len(blocklist)):
+        if blocklist[i] == ip:
+            return True              # FIX 3: match -> True
+        # FIX 4: no early 'else: return False'; keep scanning
+    return False                     # FIX 4b: explicit result when not found / empty
+
+
+class BlockList:
+    """Blocklist with O(1) average lookup; build once, query many times."""
+
+    def __init__(self, ips):
+        self._set = set(ips)
+
+    def is_blocked(self, ip):
+        return ip in self._set
+
+
+def find_signature(log, pattern):
+    """Return every start index of pattern in log (overlaps allowed).
+
+    Empty pattern or pattern longer than log -> [].
+    """
+    n, m = len(log), len(pattern)
+    hits = []
+    if m == 0 or m > n:
+        return hits
+    for i in range(n - m + 1):       # FIX 5: +1 so the last alignment is tried
+        j = 0
+        while j < m and log[i + j] == pattern[j]:
+            j += 1                   # FIX 6: success only if ALL m chars matched
+        if j == m:
+            hits.append(i)
+    return hits
+
+
+def closest_logins_brute(events, counter=None):
+    """Corrected brute force: all pairs i<j; returns ((i, j), distance)."""
+    if len(events) < 2:
+        return None, None
+    best = math.inf                  # FIX 7: start at +infinity, not 0
+    pair = None
+    for i in range(len(events)):
+        for j in range(i + 1, len(events)):   # FIX 8: j>i -> no self/repeat pairs
+            if counter is not None:
+                counter[0] += 1
+            d = math.sqrt((events[i][0] - events[j][0]) ** 2 +
+                          (events[i][1] - events[j][1]) ** 2)
+            if d < best:             # FIX 9: minimise, strict '<' keeps first pair
+                best = d
+                pair = (i, j)
+    return pair, best
+
+
+def closest_logins(events, counter=None):
+    """Optimised closest pair; same output as closest_logins_brute.
+
+    * compares squared distances (one sqrt at the very end);
+    * sorts indices by x and stops the inner scan once dx^2 > best;
+    * ties are resolved to the lexicographically smallest original (i, j),
+      exactly as the brute force does.
+    """
+    n = len(events)
+    if n < 2:
+        return None, None
+    order = sorted(range(n), key=lambda k: events[k][0])
+    best, pair = math.inf, None
+    for a in range(n):
+        i = order[a]
+        xi, yi = events[i]
+        for b in range(a + 1, n):
+            k = order[b]
+            dx = events[k][0] - xi
+            if dx * dx > best:       # strict: equal-distance ties still examined
+                break                # all later points are even farther in x
+            if counter is not None:
+                counter[0] += 1
+            dy = events[k][1] - yi
+            d2 = dx * dx + dy * dy
+            p = (i, k) if i < k else (k, i)
+            if d2 < best or (d2 == best and p < pair):
+                best, pair = d2, p
+    return pair, math.sqrt(best)
+
+
+# --------------------------- test harness ---------------------------
+def _run_tests():
+    alerts = [("A1", 3), ("A2", 9), ("A3", 5), ("A4", 9), ("A5", 1)]
+    expect = [("A2", 9), ("A4", 9), ("A3", 5), ("A1", 3), ("A5", 1)]
+    assert sort_alerts(list(alerts)) == expect
+    assert sort_alerts_fast(alerts) == expect
+    assert sort_alerts([]) == [] and sort_alerts([("X", 1)]) == [("X", 1)]
+    eq = [("a", 2), ("b", 2), ("c", 2)]
+    assert sort_alerts(list(eq)) == eq and sort_alerts_fast(eq) == eq
+    asc = [("a", 1), ("b", 2), ("c", 3)]
+    assert sort_alerts(list(asc)) == [("c", 3), ("b", 2), ("a", 1)]
+
+    bl = ["10.0.0.5", "10.0.0.9", "172.16.4.2"]
+    B = BlockList(bl)
+    for ip, want in [("10.0.0.9", True), ("10.0.0.5", True), ("8.8.8.8", False),
+                     ("172.16.4.2", True)]:
+        assert is_blocked(bl, ip) is want and B.is_blocked(ip) is want
+    assert is_blocked([], "1.1.1.1") is False and BlockList([]).is_blocked("1.1.1.1") is False
+
+    assert find_signature("FAILFAIXFAIL", "FAIL") == [0, 8]
+    assert find_signature("xxFAIL", "FAIL") == [2]          # at very end
+    assert find_signature("FAIL", "FAILURE") == []          # pattern > log
+    assert find_signature("FAIL", "FAIL") == [0]            # equal length
+    assert find_signature("AAAA", "AA") == [0, 1, 2]        # overlaps
+    assert find_signature("abc", "") == [] and find_signature("", "a") == []
+
+    ev = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]
+    p, d = closest_logins_brute(ev)
+    assert p == (0, 5) and abs(d - math.sqrt(2)) < 1e-12
+    assert closest_logins(ev) == (p, d)
+    assert closest_logins([]) == (None, None) and closest_logins([(1, 1)]) == (None, None)
+    assert closest_logins([(0, 0), (3, 4)]) == ((0, 1), 5.0)
+    assert closest_logins([(1, 1), (1, 1), (5, 5)])[0] == (0, 1)   # duplicates, d=0
+    import random
+    for _ in range(300):                                    # brute vs optimised
+        pts = [(random.randint(0, 15), random.randint(0, 15)) for _ in range(random.randint(2, 40))]
+        assert closest_logins(pts) == closest_logins_brute(pts)
+    print("All tests passed.")
+
+
+if __name__ == "__main__":
+    _run_tests()
